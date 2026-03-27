@@ -838,6 +838,49 @@ void clk_hw_set_rate_range(struct clk_hw *hw, unsigned long min_rate,
 }
 EXPORT_SYMBOL_GPL(clk_hw_set_rate_range);
 
+/**
+ * clk_hw_get_num_children - Get the number of children of a clk_hw
+ * @hw: the clk_hw whose children are to be counted
+ *
+ * Returns: The number of children @hw has
+ */
+unsigned int clk_hw_get_num_children(const struct clk_hw *hw)
+{
+	struct clk_core *child;
+	unsigned int num_children = 0;
+
+	lockdep_assert_held(&prepare_lock);
+
+	hlist_for_each_entry(child, &hw->core->children, child_node)
+		num_children++;
+
+	return num_children;
+}
+EXPORT_SYMBOL_GPL(clk_hw_get_num_children);
+
+/**
+ * clk_hw_get_child_by_index - Get a child of a clk_hw by index
+ * @hw: the clk_hw whose child is to be returned
+ * @index: the index of the child to return, in iteration order
+ *
+ * Returns: The @index'th child of @hw, or NULL if @hw has no such child.
+ */
+struct clk_hw *clk_hw_get_child_by_index(const struct clk_hw *hw, unsigned int index)
+{
+	struct clk_core *child;
+
+	lockdep_assert_held(&prepare_lock);
+
+	hlist_for_each_entry(child, &hw->core->children, child_node) {
+		if (index == 0)
+			return child->hw;
+		index--;
+	}
+
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(clk_hw_get_child_by_index);
+
 /*
  * __clk_mux_determine_rate - clk_ops::determine_rate implementation for a mux type clk
  * @hw: mux type clk to determine rate on
