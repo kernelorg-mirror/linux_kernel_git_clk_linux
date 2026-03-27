@@ -15,6 +15,9 @@
 #include <linux/err.h>
 #include <linux/string.h>
 #include <linux/log2.h>
+#include <linux/lcm.h>
+
+#include <kunit/visibility.h>
 
 /*
  * DOC: basic adjustable divider clock that cannot gate
@@ -292,6 +295,60 @@ static int _next_div(const struct clk_div_table *table, int div,
 	return div;
 }
 
+/**
+ * clk_divider_get_children_lcm - Calculate LCM of all children's rates recursively
+ * @hw: The parent clock hardware
+ * @requesting_hw: The child clock that is requesting a rate change (can be NULL)
+ * @requesting_rate: The target rate for the requesting clock
+ *
+ * This helper recursively walks through all children and their descendants,
+ * calculating the lowest common multiple (LCM) of their rates. For the
+ * requesting child, it uses the requested rate; for other enabled children, it
+ * uses their current rate. This is useful for determining what parent rate can
+ * satisfy all children through simple integer dividers.
+ *
+ * Returns: The LCM of all non-zero rates found in the subtree, or 0 if no valid rates.
+ */
+VISIBLE_IF_KUNIT
+unsigned long clk_divider_get_children_lcm(struct clk_hw *hw, struct clk_hw *requesting_hw,
+					   unsigned long requesting_rate)
+{
+	unsigned long lcm_rate = 0;
+	unsigned long child_rate;
+	unsigned int i, num_children = clk_hw_get_num_children(hw);
+
+	for (i = 0; i < num_children; i++) {
+		struct clk_hw *child = clk_hw_get_child_by_index(hw, i);
+
+		/* Use requesting rate for the requesting child, current rate for others */
+		if (child == requesting_hw) {
+			child_rate = requesting_rate;
+		} else {
+			if (!clk_hw_is_enabled(child))
+				continue;
+
+			child_rate = clk_hw_get_rate(child);
+		}
+
+		if (child_rate == 0)
+			continue;
+
+		if (lcm_rate == 0)
+			lcm_rate = child_rate;
+		else
+			lcm_rate = lcm(lcm_rate, child_rate);
+
+		/* Recursively get LCM of this child's children */
+		child_rate = clk_divider_get_children_lcm(child, requesting_hw,
+							  requesting_rate);
+		if (child_rate > 0)
+			lcm_rate = lcm(lcm_rate, child_rate);
+	}
+
+	return lcm_rate;
+}
+EXPORT_SYMBOL_IF_KUNIT(clk_divider_get_children_lcm);
+
 static int clk_divider_bestdiv(struct clk_hw *hw, struct clk_hw *parent,
 			       unsigned long rate,
 			       unsigned long *best_parent_rate,
@@ -313,6 +370,21 @@ static int clk_divider_bestdiv(struct clk_hw *hw, struct clk_hw *parent,
 		bestdiv = bestdiv == 0 ? 1 : bestdiv;
 		bestdiv = bestdiv > maxdiv ? maxdiv : bestdiv;
 		return bestdiv;
+	}
+
+	if (parent && clk_has_v2_rate_negotiation(parent->core)) {
+		unsigned long lcm_rate;
+
+		lcm_rate = clk_divider_get_children_lcm(parent, hw, rate);
+		if (lcm_rate > 0) {
+			/* Validate and use what the parent can actually provide */
+			lcm_rate = clk_hw_round_rate(parent, lcm_rate);
+			*best_parent_rate = lcm_rate;
+			bestdiv = _div_round(table, lcm_rate, rate, flags);
+			bestdiv = bestdiv == 0 ? 1 : bestdiv;
+			bestdiv = bestdiv > maxdiv ? maxdiv : bestdiv;
+			return bestdiv;
+		}
 	}
 
 	/*
