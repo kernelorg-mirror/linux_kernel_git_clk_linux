@@ -17,8 +17,6 @@
 #include <linux/log2.h>
 #include <linux/lcm.h>
 
-#include <kunit/visibility.h>
-
 /*
  * DOC: basic adjustable divider clock that cannot gate
  *
@@ -309,9 +307,8 @@ static int _next_div(const struct clk_div_table *table, int div,
  *
  * Returns: The LCM of all non-zero rates found in the subtree, or 0 if no valid rates.
  */
-VISIBLE_IF_KUNIT
-unsigned long clk_divider_get_children_lcm(struct clk_hw *hw, struct clk_hw *requesting_hw,
-					   unsigned long requesting_rate)
+static unsigned long clk_divider_get_children_lcm(struct clk_hw *hw, struct clk_hw *requesting_hw,
+						  unsigned long requesting_rate)
 {
 	unsigned long lcm_rate = 0;
 	unsigned long child_rate;
@@ -347,7 +344,6 @@ unsigned long clk_divider_get_children_lcm(struct clk_hw *hw, struct clk_hw *req
 
 	return lcm_rate;
 }
-EXPORT_SYMBOL_IF_KUNIT(clk_divider_get_children_lcm);
 
 static int clk_divider_bestdiv(struct clk_hw *hw, struct clk_hw *parent,
 			       unsigned long rate,
